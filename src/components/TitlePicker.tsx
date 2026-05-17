@@ -6,13 +6,14 @@ interface Props {
   titles: DetectedTitle[];
   onSelect: (title: string) => void;
   onDismiss: () => void;
+  heading?: string;
 }
 
-export function TitlePicker({ titles, onSelect, onDismiss }: Props) {
+export function TitlePicker({ titles, onSelect, onDismiss, heading = 'Detected titles' }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.heading}>Detected titles</Text>
+        <Text style={styles.heading}>{heading}</Text>
         <TouchableOpacity onPress={onDismiss}>
           <Text style={styles.cancel}>Cancel</Text>
         </TouchableOpacity>

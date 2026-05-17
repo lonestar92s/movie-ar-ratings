@@ -1,172 +1,163 @@
-import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
-import { useTextRecognition } from '@/hooks/useTextRecognition';
-import { useRatings } from '@/hooks/useRatings';
-import { RatingCard } from '@/components/RatingCard';
-import { TitlePicker } from '@/components/TitlePicker';
-import { DetectedTitle } from '@/types';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  Image,
+  RefreshControl,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { getHistory, HistoryEntry } from '@/store/historyStore';
 
-type UIState = 'idle' | 'processing' | 'picking' | 'rating';
+function ScoreChip({ label, value }: { label: string; value?: string }) {
+  if (!value || value === 'N/A') return null;
+  return (
+    <View style={styles.chip}>
+      <Text style={styles.chipLabel}>{label}</Text>
+      <Text style={styles.chipValue}>{value}</Text>
+    </View>
+  );
+}
 
-export default function CameraScreen() {
-  const { hasPermission, requestPermission } = useCameraPermission();
-  const device = useCameraDevice('back');
-  const cameraRef = useRef<Camera>(null);
-
-  const { recognizeFromUri, processing } = useTextRecognition();
-  const { data: ratings, loading: ratingsLoading, error: ratingsError, lookup, clear } = useRatings();
-
-  const [uiState, setUiState] = useState<UIState>('idle');
-  const [detectedTitles, setDetectedTitles] = useState<DetectedTitle[]>([]);
-
-  if (!hasPermission) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.permissionText}>Camera access is needed to scan your screen.</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant permission</Text>
-        </TouchableOpacity>
+function HistoryCard({ entry, onPress }: { entry: HistoryEntry; onPress: () => void }) {
+  const { ratings } = entry;
+  return (
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
+      {ratings.poster ? (
+        <Image source={{ uri: ratings.poster }} style={styles.poster} />
+      ) : (
+        <View style={[styles.poster, styles.posterPlaceholder]}>
+          <Text style={styles.posterPlaceholderText}>🎬</Text>
+        </View>
+      )}
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardTitle} numberOfLines={2}>{ratings.title}</Text>
+        <Text style={styles.cardMeta}>
+          {ratings.year} · {ratings.type === 'series' ? 'TV Series' : 'Film'}
+        </Text>
+        <View style={styles.chips}>
+          <ScoreChip label="IMDb" value={ratings.imdbRating} />
+          <ScoreChip label="RT" value={ratings.rottenTomatoes} />
+          <ScoreChip label="Meta" value={ratings.metacritic} />
+        </View>
       </View>
-    );
-  }
+    </TouchableOpacity>
+  );
+}
 
-  if (!device) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.permissionText}>No camera found.</Text>
-      </View>
-    );
-  }
+export default function HomeScreen() {
+  const router = useRouter();
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  async function handleTap() {
-    if (uiState !== 'idle' || !cameraRef.current) return;
+  const loadHistory = useCallback(async () => {
+    const data = await getHistory();
+    setHistory(data);
+  }, []);
 
-    setUiState('processing');
-    try {
-      const photo = await cameraRef.current.takePhoto({ flash: 'off' });
-      const uri = `file://${photo.path}`;
-      const titles = await recognizeFromUri(uri);
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
-      if (titles.length === 0) {
-        Alert.alert('Nothing detected', 'Point at a title in a streaming grid or carousel and try again.');
-        setUiState('idle');
-        return;
-      }
-
-      if (titles.length === 1) {
-        // Single title — skip picker, go straight to ratings
-        setUiState('rating');
-        await lookup(titles[0].text);
-      } else {
-        setDetectedTitles(titles);
-        setUiState('picking');
-      }
-    } catch {
-      Alert.alert('Error', 'Could not capture or process the image.');
-      setUiState('idle');
-    }
-  }
-
-  async function handleTitleSelect(title: string) {
-    setUiState('rating');
-    await lookup(title);
-  }
-
-  function handleDismiss() {
-    clear();
-    setDetectedTitles([]);
-    setUiState('idle');
-  }
-
-  const isIdle = uiState === 'idle';
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadHistory();
+    setRefreshing(false);
+  }, [loadHistory]);
 
   return (
     <View style={styles.container}>
-      <Camera
-        ref={cameraRef}
-        style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={isIdle || uiState === 'processing'}
-        photo
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.logo}>CineScope</Text>
+        <Text style={styles.tagline}>Instant ratings from your screen</Text>
+      </View>
+
+      {/* Scan CTA */}
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => router.push('/scanner')}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.scanIcon}>⬤</Text>
+        <Text style={styles.scanLabel}>Scan Screen</Text>
+        <Text style={styles.scanSub}>Point at any streaming grid or carousel</Text>
+      </TouchableOpacity>
+
+      {/* Recent scans */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>
+          {history.length > 0 ? 'Recently Scanned' : ''}
+        </Text>
+      </View>
+
+      <FlatList
+        data={history}
+        keyExtractor={(_, i) => String(i)}
+        renderItem={({ item }) => (
+          <HistoryCard
+            entry={item}
+            onPress={() =>
+              router.push({ pathname: '/rating', params: { data: JSON.stringify(item.ratings) } })
+            }
+          />
+        )}
+        contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#555" />}
+        ListEmptyComponent={
+          <Text style={styles.empty}>Scan a streaming screen to see ratings here.</Text>
+        }
       />
-
-      {/* Tap target — full screen when idle */}
-      {isIdle && (
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={handleTap} activeOpacity={1}>
-          <View style={styles.hintContainer}>
-            <View style={styles.hint}>
-              <Text style={styles.hintText}>
-                {processing ? 'Scanning…' : 'Tap anywhere to identify titles'}
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-      )}
-
-      {/* Processing indicator */}
-      {uiState === 'processing' && (
-        <View style={styles.hintContainer}>
-          <View style={styles.hint}>
-            <Text style={styles.hintText}>Scanning…</Text>
-          </View>
-        </View>
-      )}
-
-      {/* Bottom sheet: title picker */}
-      {uiState === 'picking' && (
-        <View style={styles.bottomSheet}>
-          <TitlePicker
-            titles={detectedTitles}
-            onSelect={handleTitleSelect}
-            onDismiss={handleDismiss}
-          />
-        </View>
-      )}
-
-      {/* Bottom sheet: rating card */}
-      {uiState === 'rating' && (
-        <View style={styles.bottomSheet}>
-          <RatingCard
-            ratings={ratings}
-            loading={ratingsLoading}
-            error={ratingsError}
-            onDismiss={handleDismiss}
-          />
-        </View>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  permissionText: { color: '#fff', textAlign: 'center', marginBottom: 16, fontSize: 16 },
-  button: {
+  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  header: { paddingTop: 64, paddingHorizontal: 24, paddingBottom: 24 },
+  logo: { color: '#fff', fontSize: 32, fontWeight: '800', letterSpacing: -0.5 },
+  tagline: { color: '#555', fontSize: 14, marginTop: 4 },
+
+  scanButton: {
+    marginHorizontal: 24,
     backgroundColor: '#fff',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-  },
-  buttonText: { color: '#000', fontWeight: '600', fontSize: 15 },
-  hintContainer: {
-    flex: 1,
-    justifyContent: 'flex-end',
+    borderRadius: 16,
+    padding: 24,
     alignItems: 'center',
-    paddingBottom: 60,
   },
-  hint: {
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+  scanIcon: { color: '#e50914', fontSize: 28, marginBottom: 8 },
+  scanLabel: { color: '#000', fontSize: 20, fontWeight: '700' },
+  scanSub: { color: '#555', fontSize: 13, marginTop: 4, textAlign: 'center' },
+
+  section: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 8 },
+  sectionTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
+
+  list: { paddingHorizontal: 24, paddingBottom: 40 },
+  empty: { color: '#444', fontSize: 14, textAlign: 'center', marginTop: 40 },
+
+  card: {
+    flexDirection: 'row',
+    backgroundColor: '#161616',
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
   },
-  hintText: { color: '#fff', fontSize: 14 },
-  bottomSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  poster: { width: 70, height: 100 },
+  posterPlaceholder: { backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },
+  posterPlaceholderText: { fontSize: 24 },
+  cardInfo: { flex: 1, padding: 12, justifyContent: 'center' },
+  cardTitle: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  cardMeta: { color: '#666', fontSize: 12, marginTop: 2 },
+  chips: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  chip: {
+    backgroundColor: '#222',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignItems: 'center',
   },
+  chipLabel: { color: '#888', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 },
+  chipValue: { color: '#fff', fontSize: 12, fontWeight: '700', marginTop: 1 },
 });

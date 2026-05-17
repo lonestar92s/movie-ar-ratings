@@ -28,6 +28,12 @@
       ],
       "expo-asset",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "070459ca-8277-4e0f-a7cd-14c5c97460ba"
+      }
+    }
   }
 }
