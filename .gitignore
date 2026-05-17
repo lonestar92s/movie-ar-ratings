@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native build artifacts
+ios/build/
+ios/Pods/
+android/build/
+android/.gradle/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# macOS / IDE
+.DS_Store
+*.pem
+.idea/
+.vscode/
+*.xcuserstate
+**/xcuserdata/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Logs & debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# TypeScript
+*.tsbuildinfo
+
+# Metro
+.metro-health-check*

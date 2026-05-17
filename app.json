@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "CineScope",
+    "slug": "cinescope",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "cinescope",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "bundleIdentifier": "com.andrewaluko.cinescope",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Point your camera at a streaming screen to get instant ratings."
+      }
+    },
+    "android": {
+      "package": "com.andrewaluko.cinescope",
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Point your camera at a streaming screen to get instant ratings."
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}
