@@ -83,7 +83,7 @@ export default function HomeScreen() {
       >
         <Text style={styles.scanIcon}>⬤</Text>
         <Text style={styles.scanLabel}>Scan Screen</Text>
-        <Text style={styles.scanSub}>Point at any streaming grid or carousel</Text>
+        <Text style={styles.scanSub}>Tap a title on your TV or phone screen</Text>
       </TouchableOpacity>
 
       {/* Recent scans */}
@@ -107,7 +107,7 @@ export default function HomeScreen() {
         contentContainerStyle={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#555" />}
         ListEmptyComponent={
-          <Text style={styles.empty}>Scan a streaming screen to see ratings here.</Text>
+          <Text style={styles.empty}>Tap a title while scanning to see ratings here.</Text>
         }
       />
     </View>

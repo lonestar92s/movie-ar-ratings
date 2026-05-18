@@ -1,27 +1,36 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Pressable,
+  Alert,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import { useRouter } from 'expo-router';
 import { useTextRecognition } from '@/hooks/useTextRecognition';
 import { useRatings } from '@/hooks/useRatings';
 import { TitlePicker } from '@/components/TitlePicker';
-import { DetectedTitle } from '@/types';
-import { TmdbMatch } from '@/services/tmdb';
+import { LookupCandidate } from '@/types';
 import { addToHistory } from '@/store/historyStore';
+import { viewPointToImagePoint } from '@/utils/viewToImageCoords';
 
-type UIState = 'idle' | 'processing' | 'picking-ocr' | 'picking-tmdb' | 'fetching';
+type UIState = 'idle' | 'processing' | 'picking-candidates' | 'fetching';
 
 export default function ScannerScreen() {
   const router = useRouter();
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
   const cameraRef = useRef<Camera>(null);
+  const viewSize = useRef({ width: 0, height: 0 });
 
   const { recognizeFromUri } = useTextRecognition();
   const { lookup, pickCandidate, candidates } = useRatings();
 
   const [uiState, setUiState] = useState<UIState>('idle');
-  const [detectedTitles, setDetectedTitles] = useState<DetectedTitle[]>([]);
 
   if (!hasPermission) {
     return (
@@ -42,26 +51,47 @@ export default function ScannerScreen() {
     );
   }
 
-  async function handleTap() {
+  function handleViewLayout(event: LayoutChangeEvent) {
+    const { width, height } = event.nativeEvent.layout;
+    viewSize.current = { width, height };
+  }
+
+  async function handleTap(event: GestureResponderEvent) {
     if (uiState !== 'idle' || !cameraRef.current) return;
+
+    const { locationX, locationY } = event.nativeEvent;
+    const { width: viewWidth, height: viewHeight } = viewSize.current;
+    if (viewWidth === 0 || viewHeight === 0) return;
 
     setUiState('processing');
     try {
       const photo = await cameraRef.current.takePhoto({ flash: 'off' });
-      const titles = await recognizeFromUri(`file://${photo.path}`);
+      const tap = viewPointToImagePoint(
+        locationX,
+        locationY,
+        viewWidth,
+        viewHeight,
+        photo.width,
+        photo.height,
+      );
+
+      const titles = await recognizeFromUri(`file://${photo.path}`, {
+        x: tap.x,
+        y: tap.y,
+        imageWidth: photo.width,
+        imageHeight: photo.height,
+      });
 
       if (titles.length === 0) {
-        Alert.alert('Nothing detected', 'Point at titles in a streaming grid and try again.');
+        Alert.alert(
+          'No title found',
+          'Tap directly on the title text you want ratings for.',
+        );
         setUiState('idle');
         return;
       }
 
-      if (titles.length === 1) {
-        await handleOcrTitleSelect(titles[0].text);
-      } else {
-        setDetectedTitles(titles);
-        setUiState('picking-ocr');
-      }
+      await handleOcrTitleSelect(titles[0].text);
     } catch {
       Alert.alert('Error', 'Could not process the image.');
       setUiState('idle');
@@ -70,23 +100,21 @@ export default function ScannerScreen() {
 
   async function handleOcrTitleSelect(title: string) {
     setUiState('fetching');
-    setDetectedTitles([]);
-    const result = await lookup(title);
+    const { data, candidates: picks, error } = await lookup(title);
 
-    if (result) {
-      await addToHistory(result);
-      router.push({ pathname: '/rating', params: { data: JSON.stringify(result) } });
+    if (data) {
+      await addToHistory(data);
+      router.push({ pathname: '/rating', params: { data: JSON.stringify(data) } });
       setUiState('idle');
-    } else if (candidates.length > 0) {
-      // TMDB returned multiple candidates — let user pick
-      setUiState('picking-tmdb');
+    } else if (picks.length > 0) {
+      setUiState('picking-candidates');
     } else {
-      Alert.alert('Not found', `Could not find ratings for "${title}". Try scanning again.`);
+      Alert.alert('Not found', error ?? `Could not find ratings for "${title}". Try again.`);
       setUiState('idle');
     }
   }
 
-  async function handleTmdbCandidateSelect(match: TmdbMatch) {
+  async function handleCandidateSelect(match: LookupCandidate) {
     setUiState('fetching');
     const result = await pickCandidate(match);
     if (result) {
@@ -101,7 +129,7 @@ export default function ScannerScreen() {
   const isActive = uiState === 'idle' || uiState === 'processing';
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={handleViewLayout}>
       <Camera
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
@@ -115,44 +143,31 @@ export default function ScannerScreen() {
       )}
 
       {uiState === 'idle' && (
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={handleTap} activeOpacity={1}>
-          <View style={styles.hintContainer}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleTap}>
+          <View style={styles.hintContainer} pointerEvents="none">
             <View style={styles.hint}>
-              <Text style={styles.hintText}>Tap anywhere to scan</Text>
+              <Text style={styles.hintText}>Tap the title you want ratings for</Text>
             </View>
           </View>
-        </TouchableOpacity>
+        </Pressable>
       )}
 
       {(uiState === 'processing' || uiState === 'fetching') && (
         <View style={styles.hintContainer}>
           <View style={styles.hint}>
             <Text style={styles.hintText}>
-              {uiState === 'processing' ? 'Scanning…' : 'Fetching ratings…'}
+              {uiState === 'processing' ? 'Reading title…' : 'Fetching ratings…'}
             </Text>
           </View>
         </View>
       )}
 
-      {/* Back button — always on top */}
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <Text style={styles.backIcon}>‹</Text>
         <Text style={styles.backLabel}>Home</Text>
       </TouchableOpacity>
 
-      {/* OCR title picker — multiple titles detected on screen */}
-      {uiState === 'picking-ocr' && (
-        <View style={styles.bottomSheet}>
-          <TitlePicker
-            titles={detectedTitles}
-            onSelect={handleOcrTitleSelect}
-            onDismiss={() => setUiState('idle')}
-          />
-        </View>
-      )}
-
-      {/* TMDB candidate picker — OCR was fuzzy, TMDB found multiple matches */}
-      {uiState === 'picking-tmdb' && candidates.length > 0 && (
+      {uiState === 'picking-candidates' && candidates.length > 0 && (
         <View style={styles.bottomSheet}>
           <TitlePicker
             titles={candidates.map(c => ({
@@ -161,7 +176,7 @@ export default function ScannerScreen() {
             }))}
             onSelect={(label) => {
               const match = candidates.find(c => label.startsWith(c.title));
-              if (match) handleTmdbCandidateSelect(match);
+              if (match) handleCandidateSelect(match);
             }}
             onDismiss={() => setUiState('idle')}
             heading="Did you mean…"

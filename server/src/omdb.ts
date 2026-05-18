@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { MovieRatings } from '../types';
+import { MovieRatings } from './types.js';
 
-const API_KEY = process.env.EXPO_PUBLIC_OMDB_API_KEY;
+const API_KEY = process.env.OMDB_API_KEY;
 const BASE_URL = 'https://www.omdbapi.com';
 
 interface OmdbRating {
@@ -30,24 +30,26 @@ function parseOmdbResponse(data: OmdbResponse): MovieRatings {
     imdbRating: data.imdbRating,
     rottenTomatoes: rtRating?.Value,
     metacritic: metaRating?.Value,
-    ratings: data.Ratings?.map(r => ({
-      source: r.Source === 'Internet Movie Database'
-        ? 'IMDb'
-        : r.Source === 'Rotten Tomatoes'
-        ? 'Rotten Tomatoes'
-        : 'Metacritic',
-      value: r.Value,
-    })) ?? [],
+    ratings:
+      data.Ratings?.map(r => ({
+        source:
+          r.Source === 'Internet Movie Database'
+            ? 'IMDb'
+            : r.Source === 'Rotten Tomatoes'
+              ? 'Rotten Tomatoes'
+              : 'Metacritic',
+        value: r.Value,
+      })) ?? [],
   };
 }
 
-export async function fetchRatings(title: string): Promise<MovieRatings | null> {
+export async function fetchRatingsByTitle(title: string): Promise<MovieRatings | null> {
+  if (!API_KEY) return null;
   try {
     const { data } = await axios.get<OmdbResponse>(BASE_URL, {
       params: { t: title, apikey: API_KEY },
       timeout: 5000,
     });
-
     if (data.Response === 'False') return null;
     return parseOmdbResponse(data);
   } catch {
@@ -56,6 +58,7 @@ export async function fetchRatings(title: string): Promise<MovieRatings | null> 
 }
 
 export async function fetchRatingsById(imdbId: string): Promise<MovieRatings | null> {
+  if (!API_KEY) return null;
   try {
     const { data } = await axios.get<OmdbResponse>(BASE_URL, {
       params: { i: imdbId, apikey: API_KEY },

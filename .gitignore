@@ -29,6 +29,7 @@ android/.gradle/
 .env
 .env.*
 !.env.example
+server/.env
 
 # Logs & debug
 npm-debug.*

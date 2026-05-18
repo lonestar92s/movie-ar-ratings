@@ -1,13 +1,3 @@
-export interface DetectedTitle {
-  text: string;
-  bounds: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-}
-
 export interface RatingSource {
   source: 'IMDb' | 'Rotten Tomatoes' | 'Metacritic';
   value: string;
@@ -24,11 +14,6 @@ export interface MovieRatings {
   ratings: RatingSource[];
 }
 
-export interface CachedRating {
-  data: MovieRatings;
-  cachedAt: number;
-}
-
 export interface LookupCandidate {
   imdbId: string;
   title: string;
@@ -40,9 +25,3 @@ export type LookupResponse =
   | { status: 'found'; data: MovieRatings }
   | { status: 'ambiguous'; candidates: LookupCandidate[] }
   | { status: 'not_found'; message: string };
-
-export interface LookupResult {
-  data: MovieRatings | null;
-  candidates: LookupCandidate[];
-  error: string | null;
-}

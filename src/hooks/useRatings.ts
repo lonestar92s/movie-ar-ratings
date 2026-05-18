@@ -1,15 +1,14 @@
 import { useState, useCallback } from 'react';
-import { MovieRatings } from '../types';
-import { fetchRatings, fetchRatingsById } from '../services/omdb';
-import { searchTmdb, TmdbMatch } from '../services/tmdb';
+import { LookupCandidate, LookupResult, MovieRatings } from '../types';
+import { apiLookup, apiResolve } from '../services/ratingsApi';
 import { getCachedRating, setCachedRating } from '../store/ratingsCache';
+import { normalizeTitleText } from '../utils/titleText';
 
 interface State {
   data: MovieRatings | null;
   loading: boolean;
   error: string | null;
-  // Populated when TMDB returns multiple candidates and we can't auto-pick
-  candidates: TmdbMatch[];
+  candidates: LookupCandidate[];
 }
 
 const INITIAL: State = { data: null, loading: false, error: null, candidates: [] };
@@ -17,62 +16,73 @@ const INITIAL: State = { data: null, loading: false, error: null, candidates: []
 export function useRatings() {
   const [state, setState] = useState<State>(INITIAL);
 
-  const lookup = useCallback(async (title: string): Promise<MovieRatings | null> => {
+  const lookup = useCallback(async (title: string): Promise<LookupResult> => {
+    const query = normalizeTitleText(title);
     setState({ data: null, loading: true, error: null, candidates: [] });
 
-    // L1: cache
-    const cached = await getCachedRating(title);
+    const cached = await getCachedRating(query);
     if (cached) {
+      const hit: LookupResult = { data: cached, candidates: [], error: null };
       setState({ data: cached, loading: false, error: null, candidates: [] });
-      return cached;
+      return hit;
     }
 
-    // L2: OMDB exact match
-    const exact = await fetchRatings(title);
-    if (exact) {
-      await setCachedRating(title, exact);
-      setState({ data: exact, loading: false, error: null, candidates: [] });
-      return exact;
+    try {
+      const response = await apiLookup(query);
+
+      if (response.status === 'found') {
+        await setCachedRating(query, response.data);
+        const hit: LookupResult = { data: response.data, candidates: [], error: null };
+        setState({ data: response.data, loading: false, error: null, candidates: [] });
+        return hit;
+      }
+
+      if (response.status === 'ambiguous') {
+        const hit: LookupResult = { data: null, candidates: response.candidates, error: null };
+        setState({ data: null, loading: false, error: null, candidates: response.candidates });
+        return hit;
+      }
+
+      const miss: LookupResult = {
+        data: null,
+        candidates: [],
+        error: response.message,
+      };
+      setState({ data: null, loading: false, error: response.message, candidates: [] });
+      return miss;
+    } catch {
+      const message = 'Could not reach the ratings server. Is it running?';
+      const miss: LookupResult = { data: null, candidates: [], error: message };
+      setState({ data: null, loading: false, error: message, candidates: [] });
+      return miss;
     }
-
-    // L3: TMDB fuzzy search → OMDB by IMDb ID
-    const matches = await searchTmdb(title);
-
-    if (matches.length === 0) {
-      setState({ data: null, loading: false, error: `Nothing found for "${title}". Try scanning again or search manually.`, candidates: [] });
-      return null;
-    }
-
-    // Auto-pick if there's only one match
-    if (matches.length === 1) {
-      return resolveTmdbMatch(matches[0], setState);
-    }
-
-    // Multiple candidates — surface them for the user to pick
-    setState({ data: null, loading: false, error: null, candidates: matches });
-    return null;
   }, []);
 
-  const pickCandidate = useCallback(async (match: TmdbMatch): Promise<MovieRatings | null> => {
+  const pickCandidate = useCallback(async (match: LookupCandidate): Promise<MovieRatings | null> => {
     setState(s => ({ ...s, loading: true, candidates: [] }));
-    return resolveTmdbMatch(match, setState);
+
+    try {
+      const response = await apiResolve(match);
+      if (response.status === 'found') {
+        await setCachedRating(match.title, response.data);
+        setState({ data: response.data, loading: false, error: null, candidates: [] });
+        return response.data;
+      }
+
+      const message =
+        response.status === 'not_found'
+          ? response.message
+          : `Could not load ratings for "${match.title}".`;
+      setState({ data: null, loading: false, error: message, candidates: [] });
+      return null;
+    } catch {
+      const message = 'Could not reach the ratings server. Is it running?';
+      setState({ data: null, loading: false, error: message, candidates: [] });
+      return null;
+    }
   }, []);
 
   const clear = useCallback(() => setState(INITIAL), []);
 
   return { ...state, lookup, pickCandidate, clear };
-}
-
-async function resolveTmdbMatch(
-  match: TmdbMatch,
-  setState: React.Dispatch<React.SetStateAction<State>>
-): Promise<MovieRatings | null> {
-  const result = await fetchRatingsById(match.imdbId);
-  if (result) {
-    await setCachedRating(match.title, result);
-    setState({ data: result, loading: false, error: null, candidates: [] });
-    return result;
-  }
-  setState({ data: null, loading: false, error: `Could not load ratings for "${match.title}".`, candidates: [] });
-  return null;
 }
