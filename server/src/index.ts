@@ -13,6 +13,6 @@ if (!process.env.TMDB_API_KEY) {
 
 const app = createApp();
 
-app.listen(PORT, () => {
-  log('info', 'server_started', { port: PORT });
+app.listen(PORT, '0.0.0.0', () => {
+  log('info', 'server_started', { port: PORT, host: '0.0.0.0' });
 });
