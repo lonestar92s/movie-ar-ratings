@@ -1,0 +1,12 @@
+# Deploy the Express API from this monorepo root.
+# (Without this, Railway runs the Expo app's `npm start` → expo start.)
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm ci --prefix server && npm run build --prefix server"
+watchPatterns = ["/server/**"]
+
+[deploy]
+startCommand = "npm start --prefix server"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
