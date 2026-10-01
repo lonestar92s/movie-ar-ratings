@@ -96,6 +96,47 @@ describe('lookupByTitle', () => {
       expect(result.message).toContain('Unknown Title XYZ');
     }
   });
+
+  it('recovers OCR typo via looser TMDB query + edit distance', async () => {
+    const ducks = {
+      imdbId: 'tt0104431',
+      title: 'The Mighty Ducks',
+      year: '1992',
+      type: 'movie' as const,
+    };
+    const ratings: MovieRatings = {
+      title: 'The Mighty Ducks',
+      year: '1992',
+      type: 'movie',
+      imdbRating: '6.5',
+      ratings: [],
+    };
+
+    vi.mocked(fetchRatingsByTitle).mockResolvedValue(null);
+    vi.mocked(searchTmdb).mockImplementation(async (q: string) => {
+      const key = q.toLowerCase();
+      if (key === 'the mighty') return [ducks];
+      return [];
+    });
+    vi.mocked(fetchRatingsById).mockResolvedValue(ratings);
+
+    const result = await lookupByTitle('The mighty dugks');
+    expect(result).toEqual({ status: 'found', data: ratings });
+    expect(fetchRatingsById).toHaveBeenCalledWith('tt0104431');
+    expect(searchTmdb).toHaveBeenCalledWith('The mighty dugks');
+    expect(searchTmdb).toHaveBeenCalledWith('The mighty');
+  });
+
+  it('rejects distant TMDB hits instead of auto-resolving', async () => {
+    vi.mocked(fetchRatingsByTitle).mockResolvedValue(null);
+    vi.mocked(searchTmdb).mockResolvedValue([
+      { imdbId: 'tt9', title: 'Completely Different', year: '2000', type: 'movie' },
+    ]);
+
+    const result = await lookupByTitle('Unknown Title XYZ');
+    expect(result.status).toBe('not_found');
+    expect(fetchRatingsById).not.toHaveBeenCalled();
+  });
 });
 
 describe('resolveByImdbId', () => {

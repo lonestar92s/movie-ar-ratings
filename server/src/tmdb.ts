@@ -30,7 +30,10 @@ async function getImdbId(tmdbId: number, mediaType: 'movie' | 'tv'): Promise<str
   }
 }
 
-export async function searchTmdb(query: string): Promise<LookupCandidate[]> {
+export async function searchTmdb(
+  query: string,
+  limit = 10
+): Promise<LookupCandidate[]> {
   if (!API_KEY) return [];
   try {
     const { data } = await axios.get<{ results: TmdbSearchResult[] }>(
@@ -40,7 +43,7 @@ export async function searchTmdb(query: string): Promise<LookupCandidate[]> {
 
     const candidates = data.results
       .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
-      .slice(0, 3);
+      .slice(0, limit);
 
     const matches = await Promise.all(
       candidates.map(async (r): Promise<LookupCandidate | null> => {

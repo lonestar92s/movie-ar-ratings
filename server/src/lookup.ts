@@ -1,9 +1,38 @@
-import { clearCache, getCachedRating, setCachedRating } from './cache.js';
+import { getCachedRating, setCachedRating } from './cache.js';
+import {
+  buildSearchQueries,
+  decideFromRanked,
+  rankCandidates,
+  titleDistance,
+} from './fuzzyTitle.js';
 import { log } from './logger.js';
 import { fetchRatingsById, fetchRatingsByTitle } from './omdb.js';
 import { searchTmdb } from './tmdb.js';
 import { normalizeTitleText } from './titleText.js';
 import { LookupCandidate, LookupResponse } from './types.js';
+
+async function gatherTmdbCandidates(query: string): Promise<LookupCandidate[]> {
+  const queries = buildSearchQueries(query);
+  const byImdbId = new Map<string, LookupCandidate>();
+
+  for (const q of queries) {
+    const results = await searchTmdb(q);
+    for (const c of results) {
+      if (!byImdbId.has(c.imdbId)) byImdbId.set(c.imdbId, c);
+    }
+
+    // If primary query already produced a near-exact unique hit, skip looser retries.
+    if (q === queries[0] && byImdbId.size > 0) {
+      const ranked = rankCandidates(query, [...byImdbId.values()]);
+      const decision = decideFromRanked(ranked);
+      if (decision.action === 'auto' && decision.distance <= 1) {
+        break;
+      }
+    }
+  }
+
+  return [...byImdbId.values()];
+}
 
 export async function lookupByTitle(rawQuery: string): Promise<LookupResponse> {
   const query = normalizeTitleText(rawQuery);
@@ -30,7 +59,7 @@ export async function lookupByTitle(rawQuery: string): Promise<LookupResponse> {
 
   log('debug', 'lookup_omdb_miss', { query });
 
-  const matches = await searchTmdb(query);
+  const matches = await gatherTmdbCandidates(query);
   if (matches.length === 0) {
     log('info', 'lookup_not_found', { reason: 'tmdb_empty', query });
     return {
@@ -39,18 +68,47 @@ export async function lookupByTitle(rawQuery: string): Promise<LookupResponse> {
     };
   }
 
-  log('info', 'lookup_tmdb_candidates', { query, count: matches.length });
+  const ranked = rankCandidates(query, matches);
+  log('info', 'lookup_tmdb_candidates', {
+    query,
+    count: matches.length,
+    bestDistance: ranked[0]?.distance,
+    bestTitle: ranked[0]?.candidate.title,
+  });
 
-  if (matches.length === 1) {
-    log('info', 'lookup_tmdb_auto_resolve', { query, imdbId: matches[0].imdbId });
-    return resolveByImdbId(matches[0], query);
+  const decision = decideFromRanked(ranked);
+
+  if (decision.action === 'auto') {
+    log('info', 'lookup_tmdb_auto_resolve', {
+      query,
+      imdbId: decision.candidate.imdbId,
+      distance: decision.distance,
+      title: decision.candidate.title,
+    });
+    return resolveByImdbId(decision.candidate, query);
   }
 
-  log('info', 'lookup_ambiguous', {
+  if (decision.action === 'ambiguous') {
+    log('info', 'lookup_ambiguous', {
+      query,
+      candidates: decision.candidates.map(m => ({
+        imdbId: m.imdbId,
+        title: m.title,
+        distance: titleDistance(query, m.title),
+      })),
+    });
+    return { status: 'ambiguous', candidates: decision.candidates };
+  }
+
+  log('info', 'lookup_not_found', {
+    reason: 'no_close_match',
     query,
-    candidates: matches.map(m => ({ imdbId: m.imdbId, title: m.title })),
+    bestDistance: ranked[0]?.distance,
   });
-  return { status: 'ambiguous', candidates: matches };
+  return {
+    status: 'not_found',
+    message: `Nothing found for "${query}". Try scanning again or search manually.`,
+  };
 }
 
 export async function resolveByImdbId(
